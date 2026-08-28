@@ -42,7 +42,7 @@ power-wait-seconds: 300
 # .colors/walter-many/walter-compute/, passing the R2 keys in as
 # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY — a bare tofu falls through the AWS
 # SDK's default chain and fails on unrelated credentials.
-vultr-instance-id: REPLACE_ME
+vultr-instance-id: ea6b2193-56d6-4783-a86a-3abf2f5a86eb
 
 # --- vultr ------------------------------------------------------------------
 #
