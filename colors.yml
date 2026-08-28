@@ -1,0 +1,201 @@
+# Desired state for the walter-many development machine. Non-secret values only.
+#
+# Secrets arrive as COLORS_PAR_* environment variables from .envrc.private:
+# COLORS_PAR_VULTR_API_KEY for the compute provider, COLORS_PAR_R2_ACCESS_KEY_ID
+# and COLORS_PAR_R2_SECRET_ACCESS_KEY for the state backend, and
+# COLORS_PAR_ATUIN_PASSWORD / COLORS_PAR_ATUIN_KEY for the shell history below.
+
+# Names the work directory, the OpenTofu state keys, and the ~/.ssh/config Host
+# alias — so this machine is `ssh walter-many`, and each seat below is
+# `ssh walter-many-<seat>`.
+#
+# NEVER export COLORS_PAR_PROFILE: walter refuses to start when it is set,
+# precisely because an override could select another deployment's state in the
+# shared bucket.
+profile: walter-many
+workdir: .colors
+
+provider-compute: vultr
+provider-backend: r2
+
+# A development machine holds uncommitted work and the disk goes with it, so
+# the guard stays on. Lift it for one intentional delete with
+# COLORS_PAR_COMPUTE_PREVENT_DESTROY=false rather than editing this.
+compute-prevent-destroy: true
+
+# --- power ------------------------------------------------------------------
+#
+# `stop` and `start` never reach OpenTofu — no template declares a power state,
+# so stopping the machine causes no drift. They drive Vultr's HTTP API with
+# COLORS_PAR_VULTR_API_KEY and poll until the terminal state.
+#
+# Vultr bills a stopped instance's compute reservation, unlike OCI — stopping
+# here saves less than it does on walter-ada, but keeps the habit and the alias
+# refresh consistent across the walter fleet.
+power-wait-seconds: 300
+
+# Set from the first create, and re-read after every recreate — this names one
+# instance, so a rebuilt machine leaves it pointing at a destroyed one. With it
+# here, stop and start need no access to OpenTofu state at all.
+#
+# Re-read it with `tofu output -raw instance_id` in
+# .colors/walter-many/walter-compute/, passing the R2 keys in as
+# AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY — a bare tofu falls through the AWS
+# SDK's default chain and fails on unrelated credentials.
+vultr-instance-id: REPLACE_ME
+
+# --- vultr ------------------------------------------------------------------
+#
+# Walter's Vultr path has one bootstrap exception to the normal login: the
+# provider image exposes root, so the first create enters once as root, adopts
+# the stock UID/GID 1000 account as ubuntu, installs the generated machine key
+# and passwordless sudo, then closes root and password SSH. Every later stage
+# and `ssh walter-many` use ubuntu. Vultr accepts no explicit machine key —
+# the bootstrap needs the generated private half, so keygen mode is mandatory
+# and nothing key-shaped belongs in this file.
+vultr-name: walter-many
+vultr-region: ams
+# Larger than walter-vultr's vc2-2c-4gb deliberately: this machine carries the
+# primary login plus the seats below, and each seat runs its own org clones,
+# Emacs package warm and agent sessions. 4 vCPU / 8 GB / 160 GB disk.
+vultr-plan: vc2-4c-8gb
+# Ubuntu 24.04 LTS x64, the same image walter-vultr used.
+vultr-os-id: 2284
+
+# --- GitHub identity --------------------------------------------------------
+#
+# A real create starts GitHub's device flow before provisioning: a one-time
+# code to approve from any browser, then the run is unattended. The machine
+# holds its own token; nothing of the workstation's reaches it. With seats,
+# the one token is seeded into every home — same identity everywhere.
+github-account: amiorin
+git-email: 32617+amiorin@users.noreply.github.com
+
+# --- editor -----------------------------------------------------------------
+#
+# Emacs from a pinned nixpkgs plus this configuration, cloned per home — the
+# primary login's and each seat's. Not the XDG default path, so launch with
+# `emacs --init-directory ~/.config/neoemacs`.
+emacs-config-repo: https://github.com/amiorin/.emacs.d.git
+emacs-config-dest: ~/.config/neoemacs
+
+# --- toolchain ---------------------------------------------------------------
+#
+# Installed with one `nix profile add` per login — the store is shared, so the
+# seats' profiles cost download time once. Names are nixpkgs attribute paths
+# resolved against nixpkgs-unstable; the list matches walter-ada, and the
+# comments there explain each cluster. This list is the machine's baseline,
+# not an inventory of it.
+nix-packages:
+  - asdf-vm
+  - ripgrep
+  - fd
+  - fish
+  - fzf
+  - gh
+  - caddy
+  - awscli2
+  - azure-cli
+  - google-cloud-sdk
+  - oci-cli
+  # Required by dotfiles-checkout below: its Green launcher is a bb script.
+  - babashka
+  - clojure
+  # What the dotfiles' config.fish invokes at interactive startup.
+  - starship
+  - zoxide
+  - atuin
+  - direnv
+  - eza
+  # The seats are operated through ssh + zellij sessions; the dotfiles bring
+  # the layouts and aliases.
+  - zellij
+  # A C compiler, for what Emacs builds on the machine (native compilation,
+  # tree-sitter grammars, vterm).
+  - gcc
+  # Per-project toolchains — devenv is what `direnv allow` loads in the org
+  # checkouts below.
+  - devenv
+  - age
+  # The three agent CLIs. claude-code is unfree; the playbook's single
+  # `nix profile add` carries NIXPKGS_ALLOW_UNFREE=1 and --impure for it.
+  - claude-code
+  - codex
+  - pi-coding-agent
+
+# The login shell, resolved under each login's ~/.nix-profile/bin — so it has
+# to be in nix-packages above. The playbook writes nix's fish integration into
+# each home before changing the shell, never the other way round.
+login-shell: fish
+
+# --- language runtimes -------------------------------------------------------
+asdf-tools:
+  - name: nodejs
+    version: 24.18.1
+    plugin: https://github.com/asdf-vm/asdf-nodejs.git
+
+corepack-packages:
+  - pnpm
+
+# --- dotfiles ----------------------------------------------------------------
+#
+# clone-orgs below checks getcolors/dotfiles out at this path in every home;
+# walter then runs the checkout's own `./green create` once per login, stamped
+# under each ~/.local/state/walter, so later creates preserve edits.
+dotfiles-checkout: ~/code/getcolors/dotfiles
+
+# --- organisation checkouts ---------------------------------------------------
+#
+# Every source repository in the org, cloned to ~/code/getcolors/<repo> in
+# every home — each seat is a full workspace, which is the point of seats and
+# also the longest part of a create, multiplied by the number of logins.
+clone-orgs:
+  - getcolors
+
+# --- shell history -----------------------------------------------------------
+#
+# One atuin account for every login — the primary and each seat — so the whole
+# machine shares one person's history. The password and encryption key are
+# COLORS_PAR_ATUIN_PASSWORD and COLORS_PAR_ATUIN_KEY in .envrc.private. Filter
+# by directory to recall per workspace: every seat's paths are its own.
+#
+# The history crosses the seat isolation boundary by design — a command typed
+# in one seat (arguments included) is readable from every other and from any
+# machine holding the key.
+atuin-username: amiorin
+
+# --- agent CLI credentials ---------------------------------------------------
+#
+# This workstation's subscription logins, seeded once into every home — the
+# same files, so all logins share one identity. Accepted trade, chosen
+# deliberately: N+1 copies share each CLI's refresh token, and a rotation in
+# one home can log another out. When that happens, /login there — the
+# force:false guard means no later create clobbers the fresh session, and each
+# forced login permanently converts that home to its own session.
+seed-agent-credentials:
+  - claude
+  - codex
+  - pi
+
+# --- seats -------------------------------------------------------------------
+#
+# Extra unix logins beside ubuntu: one person's isolated workspaces, kept
+# apart by file permissions. Each gets a private 0700 home, the same machine
+# key, and the same environment as ubuntu — provisioned per home by the same
+# remote play. `ssh walter-many-jack`, `ssh walter-many-emma`.
+#
+# No seat holds sudo, and none may ever be granted it on the machine: a
+# sudoer can read every home, which deletes the isolation. ubuntu is the
+# trust root; system-level work happens from `ssh walter-many`. The boundary
+# is filesystem and process, not network or identity — seats share localhost,
+# /tmp, and the credentials seeded above.
+users:
+  - jack
+  - emma
+
+# --- state backend ----------------------------------------------------------
+#
+# Shared bucket, isolated by the <profile>/<stage>.tfstate key. This
+# deployment writes walter-many/walter-compute.tfstate.
+r2-bucket: tofu-state-319271fed8bc6d2d9059362be1165f37-eu
+r2-endpoint: https://319271fed8bc6d2d9059362be1165f37.eu.r2.cloudflarestorage.com
