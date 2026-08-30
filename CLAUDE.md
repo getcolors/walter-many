@@ -58,7 +58,9 @@ The isolation contract, stated plainly:
 
 - **Never grant a seat sudo.** A sudoer can read every home; granting it
   deletes the feature. ubuntu is where system-level work happens.
-- Homes are mode `0700`; seats cannot read each other's files.
+- Seat homes are mode `0700`; seats cannot read each other's files. The
+  primary `ubuntu` home may remain mode `0750`; seats are not members of its
+  group and cannot read it.
 - The boundary is filesystem and process, **not network or identity**: seats
   share localhost, `/tmp`, one GitHub token, one atuin history (directory
   filter recalls per workspace), and the seeded agent credentials.
